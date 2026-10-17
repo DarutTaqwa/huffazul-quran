@@ -8,12 +8,10 @@
     <!-- ফেভিকন আইকন -->
     <link rel="icon" type="image/png" href="https://lh3.googleusercontent.com/d/1BC9yDZx-LEVp1pb0qkm3ue4yPq382PZl=w1000" />
 
-    <!-- সার্ভারের সাথে সংযোগ আগে থেকেই খুলে রাখে -->
     <link rel="preconnect" href="https://script.google.com" crossorigin />
     <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin />
-    <link rel="dns-prefetch" href="https://script.google.com" />
-    <link rel="dns-prefetch" href="https://script.googleusercontent.com" />
-    <link href="https://fonts.googleapis.com/css2?family=SolaimanLipi&display=swap" rel="stylesheet" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=SolaimanLipi&display=swap" media="print" onload="this.media='all'" />
 
     <style>
         * { box-sizing: border-box; font-family: 'SolaimanLipi', sans-serif !important; }
@@ -43,6 +41,9 @@
         .login-btn:hover { background: #0369a1; }
         .login-btn:disabled { background: #94a3b8; cursor: not-allowed; }
 
+        .switch-inst-btn { position: fixed; top: 10px; right: 10px; z-index: 9999; background: rgba(15, 23, 42, 0.7); color: #fff; border: 1px solid rgba(255,255,255,0.2); padding: 6px 12px; border-radius: 8px; font-size: 12px; cursor: pointer; backdrop-filter: blur(4px); }
+        .switch-inst-btn:hover { background: #ef4444; border-color: #ef4444; }
+
         #bootLoader { position: fixed; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 12px; z-index: 100000; background: #fff; }
         #bootLoader .spinner { width: 36px; height: 36px; border: 3px solid #e2e8f0; border-top-color: #0284c7; border-radius: 50%; animation: spin .8s linear infinite; }
         #bootLoader span { color: #64748b; font-size: 14px; }
@@ -58,6 +59,8 @@
         <div class="spinner"></div>
         <span>লোড হচ্ছে…</span>
     </div>
+
+    <button class="switch-inst-btn" id="switchBtn" style="display:none;" onclick="logoutAndSwitch()">🔄 Log Out</button>
 
     <div class="login-overlay" id="loginOverlay">
         <div class="login-card" id="loginCardContainer">
@@ -90,9 +93,9 @@
 
     <script>
         // ══════════════════════════════════════════════════════════════
-        // ⚙️ শুধু এই দুইটা মান বদলে যেকোনো প্রতিষ্ঠানের জন্য এই ফাইল ব্যবহার করা যাবে
+        // ⚙️ প্রতিষ্ঠানের কোড নির্ধারিত — অন্য প্রতিষ্ঠানের জন্য শুধু এই লাইনটা বদলাবেন
         // ══════════════════════════════════════════════════════════════
-        var INSTITUTION_ID = "ATMS0481";   // <-- প্রতিটা প্রতিষ্ঠানের জন্য শুধু এই লাইনটা বদলাবেন
+        var INSTITUTION_ID = "ATMS0481";
         var GOOGLE_SCRIPT_API = "https://script.google.com/macros/s/AKfycbzJTmJ6e2_pOrXR5umb4IzklVP-zZqidSH6tNY83EaXlOib1X4upGRHY_PJnhsvf0V_Ew/exec";
         // ══════════════════════════════════════════════════════════════
 
@@ -105,18 +108,14 @@
         function clearSavedSession() { try { localStorage.removeItem(SESSION_STORAGE_KEY); } catch (e) {} }
 
         // ── লোডার / ফর্ম ──
-        function hideBootLoader() {
-            var l = document.getElementById('bootLoader');
-            if (l) l.style.display = 'none';
-        }
+        function hideBootLoader() { var l = document.getElementById('bootLoader'); if (l) l.style.display = 'none'; }
         function showBootLoader(text) {
             var l = document.getElementById('bootLoader');
-            if (!l) return;
-            if (text) l.querySelector('span').textContent = text;
-            l.style.display = 'flex';
+            if (l) { l.querySelector('span').textContent = text || 'লোড হচ্ছে…'; l.style.display = 'flex'; }
         }
         function showLoginForm() {
             hideBootLoader();
+            document.getElementById('switchBtn').style.display = 'none';
             document.getElementById('loginOverlay').classList.add('show');
         }
         function showMsg(text) {
@@ -124,46 +123,18 @@
             e.innerText = text;
             e.style.display = 'block';
         }
-
-        // ── সার্ভার "গরম" রাখা: ইউজার লগইন ফর্ম পূরণ করার সময়ই Apps Script জেগে ওঠে ──
-        var warmedUp = false;
-        function warmUpServer() {
-            if (warmedUp) return;
-            warmedUp = true;
-            try {
-                fetch(BASE + "&ping=1", { mode: 'no-cors', cache: 'no-store' }).catch(function () {});
-            } catch (e) {}
-        }
-
-        // ── সেশন যাচাই (অ্যাপ লোড শেষ হওয়ার পর চলে) ──
-        var verifying = false;
-        function verifySession() {
-            if (verifying) return;
-            var token = getSavedSession();
-            if (!token) return;
-            verifying = true;
-            fetch(BASE + "&session=" + encodeURIComponent(token))
-                .then(function (r) { return r.json(); })
-                .then(function (data) {
-                    if (data && data.success) {
-                        if (data.session) saveSession(data.session);
-                    } else {
-                        clearSavedSession();
-                        closeApp();
-                        showLoginForm();
-                    }
-                })
-                .catch(function () {
-                    // সাময়িক নেটওয়ার্ক সমস্যা: ব্যবহারকারীকে বের করা হয় না
-                })
-                .then(function () { verifying = false; });
+        function resetLoginButton() {
+            var btn = document.getElementById('loginBtn');
+            btn.innerText = "🔑 প্রবেশ করুন";
+            btn.disabled = false;
         }
 
         // ── অ্যাপ খোলা ──
         var appLoadFinish = null;
 
-        function openApp(verifyAfter) {
+        function openApp() {
             document.getElementById('loginOverlay').classList.remove('show');
+            document.getElementById('switchBtn').style.display = 'block';
             var frame = document.getElementById('appIframe');
             showBootLoader('লোড হচ্ছে…');
 
@@ -172,10 +143,9 @@
                 if (done) return;
                 done = true;
                 hideBootLoader();
-                if (verifyAfter) verifySession();
             };
             frame.onload = appLoadFinish;          // iframe পেজ লোড হলে
-            setTimeout(appLoadFinish, 20000);      // খুব ধীর নেটওয়ার্কেও লোডার আটকে থাকবে না
+            setTimeout(appLoadFinish, 15000);      // ধীর নেটওয়ার্কেও লোডার আটকে থাকবে না
 
             frame.src = BASE + "&loadApp=true&session=" + encodeURIComponent(getSavedSession() || '');
             document.getElementById('mainAppContainer').style.display = 'block';
@@ -189,6 +159,16 @@
             document.getElementById('mainAppContainer').style.display = 'none';
         }
 
+        // ── লগআউট ──
+        function logoutAndSwitch() {
+            clearSavedSession();
+            closeApp();
+            resetLoginButton();
+            document.getElementById('licenseKey').value = '';
+            document.getElementById('errorBlock').style.display = 'none';
+            showLoginForm();
+        }
+
         // ── অ্যাপের ভেতর থেকে আসা বার্তা ──
         window.addEventListener('message', function (ev) {
             if (!/(googleusercontent\.com|script\.google\.com)$/.test(ev.origin || '')) return;
@@ -198,9 +178,9 @@
             if (d.sms === 'session-invalid') {
                 clearSavedSession();
                 closeApp();
+                resetLoginButton();
                 showLoginForm();
             } else if (d.sms === 'app-ready') {
-                // ভেতরের অ্যাপ নিজে তৈরি হলে সাথে সাথে লোডার সরাও
                 if (appLoadFinish) appLoadFinish();
             }
         });
@@ -228,14 +208,11 @@
                 return;
             }
 
-            if (!getSavedSession()) {
-                warmUpServer();     // ইউজার টাইপ করার সময়ই সার্ভার জেগে উঠুক
+            if (getSavedSession()) {
+                openApp();          // আগের সেশন আছে: সরাসরি অ্যাপ খোলো
+            } else {
                 showLoginForm();
-                return;
             }
-
-            // আগের সেশন আছে: অ্যাপ সাথে সাথে খোলো, যাচাই লোড শেষে চলবে
-            openApp(true);
         });
 
         // ── লগইন ──
@@ -243,14 +220,13 @@
             var user = document.getElementById('username').value.trim();
             var key = document.getElementById('licenseKey').value.trim();
             var btn = document.getElementById('loginBtn');
-            var errBlock = document.getElementById('errorBlock');
 
             if (!user || !key) {
                 showMsg('❌ অনুগ্রহ করে ইউজারনেম এবং পাসওয়ার্ড দুটোই সঠিকভাবে লিখুন।');
                 return;
             }
 
-            errBlock.style.display = 'none';
+            document.getElementById('errorBlock').style.display = 'none';
             btn.innerText = "যাচাই করা হচ্ছে...";
             btn.disabled = true;
 
@@ -259,25 +235,21 @@
                 .then(function (data) {
                     if (data && data.success) {
                         btn.innerText = "🎉 লগইন সফল!";
-                        if (data.session) saveSession(data.session);
-                        openApp(false);   // এইমাত্র লগইন হয়েছে, আলাদা যাচাই লাগবে না
+                        saveSession(data.session);
+                        openApp();
                     } else {
                         showMsg("❌ " + (data && data.error ? data.error : "ভুল ইউজার আইডি অথবা পাসওয়ার্ড!"));
-                        btn.innerText = "🔑 প্রবেশ করুন";
-                        btn.disabled = false;
+                        resetLoginButton();
                     }
                 })
                 .catch(function () {
                     showMsg("❌ সার্ভার সংযোগে সমস্যা হয়েছে! আবার চেষ্টা করুন।");
-                    btn.innerText = "🔑 প্রবেশ করুন";
-                    btn.disabled = false;
+                    resetLoginButton();
                 });
         }
 
         document.getElementById('licenseKey').addEventListener('keypress', function (e) { if (e.key === 'Enter') performSecureLogin(); });
         document.getElementById('username').addEventListener('keypress', function (e) { if (e.key === 'Enter') performSecureLogin(); });
-        // ইউজার ফর্মে ফোকাস করলেও সার্ভার জাগানো (শুধু একবার চলে)
-        document.getElementById('username').addEventListener('focus', warmUpServer);
     </script>
 
     <!-- সিকিউরিটি স্ক্রিপ্ট -->
